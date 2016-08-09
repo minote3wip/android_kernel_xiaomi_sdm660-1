@@ -2100,6 +2100,7 @@ static void cpuset_bind(struct cgroup_subsys_state *root_css)
 	mutex_unlock(&cpuset_mutex);
 }
 
+
 static int cpuset_allow_attach(struct cgroup_taskset *tset)
 {
 	const struct cred *cred = current_cred(), *tcred;
@@ -2117,6 +2118,30 @@ static int cpuset_allow_attach(struct cgroup_taskset *tset)
 	return 0;
 }
 
+/*
+ * Make sure the new task conform to the current state of its parent,
+ * which could have been changed by cpuset just after it inherits the
+ * state from the parent and before it sits on the cgroup's task list.
+ */
+void cpuset_fork(struct task_struct *task, void *priv)
+{
+	if (task_css_is_root(task, cpuset_cgrp_id))
+		return;
+
+	set_cpus_allowed_ptr(task, &current->cpus_allowed);
+	task->mems_allowed = current->mems_allowed;
+#ifdef CONFIG_ROW_OPTIMIZATION
+	if (!row_optimization_offon) {
+		int ret = set_task_ioprio(task, IOPRIO_CLASS_BE <<
+					IOPRIO_CLASS_SHIFT);
+
+		if (ret)
+			pr_warn("row: set tid %d to priority %d failed",
+				task->pid, IOPRIO_CLASS_BE);
+	}
+#endif
+}
+
 struct cgroup_subsys cpuset_cgrp_subsys = {
 	.css_alloc	= cpuset_css_alloc,
 	.css_online	= cpuset_css_online,
@@ -2128,6 +2153,7 @@ struct cgroup_subsys cpuset_cgrp_subsys = {
 	.attach		= cpuset_attach,
 	.post_attach	= cpuset_post_attach,
 	.bind		= cpuset_bind,
+	.fork		= cpuset_fork,
 	.legacy_cftypes	= files,
 	.early_init	= 1,
 };
