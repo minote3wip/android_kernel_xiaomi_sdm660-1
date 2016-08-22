@@ -331,11 +331,12 @@ static inline unsigned long __copy_to_user(void __user *to, const void *from, un
 static inline unsigned long copy_from_user(void *to, const void __user *from, unsigned long n)
 {
 	if (n && __access_ok((unsigned long) from, n)) {
-		if (!__builtin_constant_p(n))
-			check_object_size(to, n, false);
+		check_object_size(to, n, false);
 		return __copy_user((__force void __user *) to, from, n);
-	} else
+	else {
+		memset(to, 0, n);
 		return n;
+	}
 }
 
 static inline unsigned long __copy_from_user(void *to, const void __user *from, unsigned long n)
