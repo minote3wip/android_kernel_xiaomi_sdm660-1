@@ -304,7 +304,7 @@ static int v9fs_xattr_set_acl(const struct xattr_handler *handler,
 			 * mode ?
 			 */
 			v9fs_vfs_setattr_dotl(dentry, &iattr);
-		}
+        }
 		break;
 	case ACL_TYPE_DEFAULT:
 		if (!S_ISDIR(inode->i_mode)) {
