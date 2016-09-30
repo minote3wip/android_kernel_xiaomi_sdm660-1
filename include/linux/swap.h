@@ -270,7 +270,11 @@ static inline void workingset_node_pages_inc(struct radix_tree_node *node)
 
 static inline void workingset_node_pages_dec(struct radix_tree_node *node)
 {
+<<<<<<< HEAD
 	VM_WARN_ON_ONCE(!workingset_node_pages(node));
+=======
+	VM_BUG_ON(!workingset_node_pages(node));
+>>>>>>> f84311d... mm: workingset: fix crash in shadow node shrinker caused by replace_page_cache_page()
 	node->count--;
 }
 
