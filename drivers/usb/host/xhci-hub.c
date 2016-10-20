@@ -1359,7 +1359,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 				goto error;
 			}
 			xhci_ring_device(xhci, slot_id);
-			break;
+            break;
 		case USB_PORT_FEAT_C_SUSPEND:
 			bus_state->port_c_suspend &= ~(1 << wIndex);
 		case USB_PORT_FEAT_C_RESET:
@@ -1590,7 +1590,7 @@ int xhci_bus_resume(struct usb_hcd *hcd)
 		spin_unlock_irqrestore(&xhci->lock, flags);
 		usleep_range(21000, 21500);
 		spin_lock_irqsave(&xhci->lock, flags);
-	}
+    }
 
 	port_index = max_ports;
 	while (port_index--) {
