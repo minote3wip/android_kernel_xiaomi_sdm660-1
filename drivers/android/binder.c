@@ -2167,7 +2167,7 @@ static void binder_transaction(struct binder_proc *proc,
 				return_error = BR_FAILED_REPLY;
 				goto err_translate_failed;
 			}
-        } break;
+		} break;
 
 		case BINDER_TYPE_FD: {
 			struct binder_fd_object *fp = to_binder_fd_object(hdr);
@@ -2212,7 +2212,7 @@ static void binder_transaction(struct binder_proc *proc,
 			last_fixup_obj = parent;
 			last_fixup_min_off =
 				fda->parent_offset + sizeof(u32) * fda->num_fds;
-		} break;
+        } break;
 		case BINDER_TYPE_PTR: {
 			struct binder_buffer_object *bp =
 				to_binder_buffer_object(hdr);
@@ -2255,7 +2255,7 @@ static void binder_transaction(struct binder_proc *proc,
 			return_error = BR_FAILED_REPLY;
 			goto err_bad_object_type;
 		}
-	}
+    }
 	if (reply) {
 		BUG_ON(t->buffer->async_transaction != 0);
 		binder_pop_transaction(target_thread, in_reply_to);
