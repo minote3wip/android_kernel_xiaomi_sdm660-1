@@ -1114,13 +1114,14 @@ static int binder_dec_node(struct binder_node *node, int strong, int internal)
 }
 
 
+
 static struct binder_ref *binder_get_ref(struct binder_proc *proc,
 					 uint32_t desc, bool need_strong_ref)
 {
 	struct rb_node *n = proc->refs_by_desc.rb_node;
 	struct binder_ref *ref;
 
-	while (n) {
+    while (n) {
 		ref = rb_entry(n, struct binder_ref, rb_node_desc);
 
 		if (desc < ref->desc) {
@@ -1569,7 +1570,7 @@ static void binder_transaction_buffer_release(struct binder_proc *proc,
 				     "        ref %d desc %d (node %d)\n",
 				     ref->debug_id, ref->desc, ref->node->debug_id);
 			binder_dec_ref(ref, hdr->type == BINDER_TYPE_HANDLE);
-		} break;
+        } break;
 
 		case BINDER_TYPE_FD: {
 			struct binder_fd_object *fp = to_binder_fd_object(hdr);
@@ -2166,7 +2167,7 @@ static void binder_transaction(struct binder_proc *proc,
 				return_error = BR_FAILED_REPLY;
 				goto err_translate_failed;
 			}
-		} break;
+        } break;
 
 		case BINDER_TYPE_FD: {
 			struct binder_fd_object *fp = to_binder_fd_object(hdr);
