@@ -2753,6 +2753,7 @@ int smblib_get_prop_die_health(struct smb_charger *chg,
 #define CDP_CURRENT_UA			1500000
 #define DCP_CURRENT_UA			1500000
 #define HVDCP_CURRENT_UA		3000000
+#define HVDCP2_CURRENT_UA		1500000
 #define TYPEC_DEFAULT_CURRENT_UA	900000
 #define TYPEC_MEDIUM_CURRENT_UA		1500000
 #define TYPEC_HIGH_CURRENT_UA		3000000
@@ -3289,14 +3290,6 @@ int smblib_get_prop_fcc_delta(struct smb_charger *chg,
 * USB MAIN PSY SETTERS *
 *************************/
 
-#define SDP_CURRENT_UA			500000
-#define CDP_CURRENT_UA			1500000
-#define DCP_CURRENT_UA			1500000
-#define HVDCP_CURRENT_UA		3000000
-#define HVDCP2_CURRENT_UA		1500000
-#define TYPEC_DEFAULT_CURRENT_UA	500000
-#define TYPEC_MEDIUM_CURRENT_UA		1500000
-#define TYPEC_HIGH_CURRENT_UA		3000000
 int smblib_get_charge_current(struct smb_charger *chg,
 				int *total_current_ua)
 {
@@ -4009,6 +4002,26 @@ static void smblib_notify_usb_host(struct smb_charger *chg, bool enable)
 
 	extcon_set_cable_state_(chg->extcon, EXTCON_USB_HOST, enable);
 }
+
+#ifdef CONFIG_FB
+static void determine_thermal_current(struct smb_charger *chg)
+{
+	if (chg->system_temp_level == 0) {
+		if (chg->screen_on_timeout && chg->screen_on)
+			smblib_therm_charging(chg, true);
+		return;
+	}
+
+	if (chg->system_temp_level > 0
+			&& chg->system_temp_level < (chg->thermal_levels - 1)) {
+		/*
+		 * consider thermal limit only when it is active and not at
+		 * the highest level
+		 */
+		smblib_therm_charging(chg, chg->screen_on);
+	}
+}
+#endif
 
 #define HVDCP_DET_MS 2500
 static void smblib_handle_apsd_done(struct smb_charger *chg, bool rising)

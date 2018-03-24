@@ -48,10 +48,6 @@ static int sleepstate_pm_notifier(struct notifier_block *nb,
 		msm_ipc_router_set_ws_allowed(false);
 		pr_debug ("PM_SUSPEND_PREPARE for sensor, now not used any more\n");
 		break;
-
-	case PM_POST_SUSPEND:
-		pr_debug ("PM_POST_SUSPEND for sensor, now not used any more\n");
-		break;
 	}
 	return NOTIFY_DONE;
 }

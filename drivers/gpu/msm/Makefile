@@ -1,5 +1,5 @@
 ccflags-y := -Idrivers/staging/android
-
+ccflags-y += -I$(src)
 msm_kgsl_core-y = \
 	kgsl.o \
 	kgsl_trace.o \
