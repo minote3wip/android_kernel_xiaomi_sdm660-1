@@ -51,7 +51,6 @@ struct netlink_sock {
 	struct netlink_ring	tx_ring;
 	atomic_t		mapped;
 #endif /* CONFIG_NETLINK_MMAP */
-
 	struct rhash_head	node;
 	struct rcu_head		rcu;
 	struct work_struct	work;
@@ -89,3 +88,4 @@ extern struct netlink_table *nl_table;
 extern rwlock_t nl_table_lock;
 
 #endif
+
