@@ -741,13 +741,19 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 
 	req->length = length;
 
-	/* throttle high/super speed IRQ rate back slightly */
-	if (gadget_is_dualspeed(dev->gadget))
-		req->no_interrupt = (((dev->gadget->speed == USB_SPEED_HIGH ||
-				       dev->gadget->speed == USB_SPEED_SUPER)) &&
-					!list_empty(&dev->tx_reqs))
-			? ((atomic_read(&dev->tx_qlen) % dev->qmult) != 0)
-			: 0;
+	/* throttle highspeed IRQ rate back slightly */
+	if (gadget_is_dualspeed(dev->gadget) &&
+			 (dev->gadget->speed == USB_SPEED_HIGH)) {
+		dev->tx_qlen++;
+		if (dev->tx_qlen == (dev->qmult/2)) {
+			req->no_interrupt = 0;
+			dev->tx_qlen = 0;
+		} else {
+			req->no_interrupt = 1;
+		}
+	} else {
+		req->no_interrupt = 0;
+	}
 
 	retval = usb_ep_queue(in, req, GFP_ATOMIC);
 	switch (retval) {
@@ -1071,9 +1077,6 @@ int gether_set_dev_addr(struct net_device *net, const char *dev_addr)
 	struct eth_dev *dev;
 	u8 new_addr[ETH_ALEN];
 
-	if (!net)
-		return -ENODEV;
-
 	dev = netdev_priv(net);
 	if (get_ether_addr(dev_addr, new_addr))
 		return -EINVAL;
@@ -1086,9 +1089,6 @@ int gether_get_dev_addr(struct net_device *net, char *dev_addr, int len)
 {
 	struct eth_dev *dev;
 
-	if (!net)
-		return -ENODEV;
-
 	dev = netdev_priv(net);
 	return get_ether_addr_str(dev->dev_mac, dev_addr, len);
 }
@@ -1098,9 +1098,6 @@ int gether_set_host_addr(struct net_device *net, const char *host_addr)
 {
 	struct eth_dev *dev;
 	u8 new_addr[ETH_ALEN];
-
-	if (!net)
-		return -ENODEV;
 
 	dev = netdev_priv(net);
 	if (get_ether_addr(host_addr, new_addr))
@@ -1113,9 +1110,6 @@ EXPORT_SYMBOL_GPL(gether_set_host_addr);
 int gether_get_host_addr(struct net_device *net, char *host_addr, int len)
 {
 	struct eth_dev *dev;
-
-	if (!net)
-		return -ENODEV;
 
 	dev = netdev_priv(net);
 	return get_ether_addr_str(dev->host_mac, host_addr, len);
@@ -1149,9 +1143,6 @@ void gether_set_qmult(struct net_device *net, unsigned qmult)
 {
 	struct eth_dev *dev;
 
-	if (!net)
-		return;
-
 	dev = netdev_priv(net);
 	dev->qmult = qmult;
 }
@@ -1161,9 +1152,6 @@ unsigned gether_get_qmult(struct net_device *net)
 {
 	struct eth_dev *dev;
 
-	if (!net)
-		return -ENODEV;
-
 	dev = netdev_priv(net);
 	return dev->qmult;
 }
@@ -1171,9 +1159,6 @@ EXPORT_SYMBOL_GPL(gether_get_qmult);
 
 int gether_get_ifname(struct net_device *net, char *name, int len)
 {
-	if (!net)
-		return -ENODEV;
-
 	rtnl_lock();
 	strlcpy(name, netdev_name(net), len);
 	rtnl_unlock();
@@ -1382,3 +1367,4 @@ module_exit(gether_exit);
 MODULE_AUTHOR("David Brownell");
 MODULE_DESCRIPTION("ethernet over USB driver");
 MODULE_LICENSE("GPL v2");
+

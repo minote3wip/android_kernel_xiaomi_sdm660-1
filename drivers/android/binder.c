@@ -464,14 +464,12 @@ static inline void binder_lock(const char *tag)
 	trace_binder_lock(tag);
 	mutex_lock(&binder_main_lock);
 	preempt_disable();
-	set_long_preempt_disable_hint(true);
 	trace_binder_locked(tag);
 }
 
 static inline void binder_unlock(const char *tag)
 {
 	trace_binder_unlock(tag);
-	set_long_preempt_disable_hint(false);
 	mutex_unlock(&binder_main_lock);
 	preempt_enable();
 }
@@ -1553,8 +1551,12 @@ static void binder_transaction_buffer_release(struct binder_proc *proc,
 		} break;
 		case BINDER_TYPE_HANDLE:
 		case BINDER_TYPE_WEAK_HANDLE: {
-			struct binder_ref *ref = binder_get_ref(proc, fp->handle,
-						fp->type == BINDER_TYPE_HANDLE);
+			struct flat_binder_object *fp;
+			struct binder_ref *ref;
+
+			fp = to_flat_binder_object(hdr);
+			ref = binder_get_ref(proc, fp->handle,
+					     hdr->type == BINDER_TYPE_HANDLE);
 
 			if (ref == NULL) {
 				pr_err("transaction release %d bad handle %d\n",
@@ -1564,7 +1566,7 @@ static void binder_transaction_buffer_release(struct binder_proc *proc,
 			binder_debug(BINDER_DEBUG_TRANSACTION,
 				     "        ref %d desc %d (node %d)\n",
 				     ref->debug_id, ref->desc, ref->node->debug_id);
-			binder_dec_ref(ref, fp->type == BINDER_TYPE_HANDLE);
+			binder_dec_ref(ref, hdr->type == BINDER_TYPE_HANDLE);
 		} break;
 
 		case BINDER_TYPE_FD: {
@@ -1575,7 +1577,6 @@ static void binder_transaction_buffer_release(struct binder_proc *proc,
 			if (failed_at)
 				task_close_fd(proc, fp->fd);
 		} break;
-
 		case BINDER_TYPE_PTR:
 			/*
 			 * Nothing to do here, this will get cleaned up when the
@@ -2142,145 +2143,108 @@ static void binder_transaction(struct binder_proc *proc,
 		hdr = (struct binder_object_header *)(t->buffer->data + *offp);
 		off_min = *offp + object_size;
 		switch (hdr->type) {
-			struct binder_ref *ref;
-			struct binder_node *node = binder_get_node(proc, fp->binder);
+		case BINDER_TYPE_BINDER:
+		case BINDER_TYPE_WEAK_BINDER: {
+			struct flat_binder_object *fp;
 
-			if (node == NULL) {
-				node = binder_new_node(proc, fp->binder, fp->cookie);
-				if (node == NULL) {
-					return_error = BR_FAILED_REPLY;
-					goto err_binder_new_node_failed;
-				}
-				node->min_priority = fp->flags & FLAT_BINDER_FLAG_PRIORITY_MASK;
-				node->accept_fds = !!(fp->flags & FLAT_BINDER_FLAG_ACCEPTS_FDS);
-			}
-			if (fp->cookie != node->cookie) {
-				binder_user_error("%d:%d sending u%016llx node %d, cookie mismatch %016llx != %016llx\n",
-					proc->pid, thread->pid,
-					(u64)fp->binder, node->debug_id,
-					(u64)fp->cookie, (u64)node->cookie);
+			fp = to_flat_binder_object(hdr);
+			ret = binder_translate_binder(fp, t, thread);
+			if (ret < 0) {
 				return_error = BR_FAILED_REPLY;
-				goto err_binder_get_ref_for_node_failed;
+				goto err_translate_failed;
 			}
-			if (security_binder_transfer_binder(proc->tsk,
-							    target_proc->tsk)) {
-				return_error = BR_FAILED_REPLY;
-				goto err_binder_get_ref_for_node_failed;
-			}
-			ref = binder_get_ref_for_node(target_proc, node);
-			if (ref == NULL) {
-				return_error = BR_FAILED_REPLY;
-				goto err_binder_get_ref_for_node_failed;
-			}
-			if (fp->type == BINDER_TYPE_BINDER)
-				fp->type = BINDER_TYPE_HANDLE;
-			else
-				fp->type = BINDER_TYPE_WEAK_HANDLE;
-			fp->handle = ref->desc;
-			binder_inc_ref(ref, fp->type == BINDER_TYPE_HANDLE,
-				       &thread->todo);
-
-			trace_binder_transaction_node_to_ref(t, node, ref);
-			binder_debug(BINDER_DEBUG_TRANSACTION,
-				     "        node %d u%016llx -> ref %d desc %d\n",
-				     node->debug_id, (u64)node->ptr,
-				     ref->debug_id, ref->desc);
 		} break;
 		case BINDER_TYPE_HANDLE:
 		case BINDER_TYPE_WEAK_HANDLE: {
-			struct binder_ref *ref = binder_get_ref(proc, fp->handle,
-						fp->type == BINDER_TYPE_HANDLE);
+			struct flat_binder_object *fp;
 
-			if (ref == NULL) {
-				binder_user_error("%d:%d got transaction with invalid handle, %d\n",
-						proc->pid,
-						thread->pid, fp->handle);
+			fp = to_flat_binder_object(hdr);
+			ret = binder_translate_handle(fp, t, thread);
+			if (ret < 0) {
 				return_error = BR_FAILED_REPLY;
-				goto err_binder_get_ref_failed;
-			}
-			if (security_binder_transfer_binder(proc->tsk,
-							    target_proc->tsk)) {
-				return_error = BR_FAILED_REPLY;
-				goto err_binder_get_ref_failed;
-			}
-			if (ref->node->proc == target_proc) {
-				if (fp->type == BINDER_TYPE_HANDLE)
-					fp->type = BINDER_TYPE_BINDER;
-				else
-					fp->type = BINDER_TYPE_WEAK_BINDER;
-				fp->binder = ref->node->ptr;
-				fp->cookie = ref->node->cookie;
-				binder_inc_node(ref->node, fp->type == BINDER_TYPE_BINDER, 0, NULL);
-				trace_binder_transaction_ref_to_node(t, ref);
-				binder_debug(BINDER_DEBUG_TRANSACTION,
-					     "        ref %d desc %d -> node %d u%016llx\n",
-					     ref->debug_id, ref->desc, ref->node->debug_id,
-					     (u64)ref->node->ptr);
-			} else {
-				struct binder_ref *new_ref;
-
-				new_ref = binder_get_ref_for_node(target_proc, ref->node);
-				if (new_ref == NULL) {
-					return_error = BR_FAILED_REPLY;
-					goto err_binder_get_ref_for_node_failed;
-				}
-				fp->handle = new_ref->desc;
-				binder_inc_ref(new_ref, fp->type == BINDER_TYPE_HANDLE, NULL);
-				trace_binder_transaction_ref_to_ref(t, ref,
-								    new_ref);
-				binder_debug(BINDER_DEBUG_TRANSACTION,
-					     "        ref %d desc %d -> ref %d desc %d (node %d)\n",
-					     ref->debug_id, ref->desc, new_ref->debug_id,
-					     new_ref->desc, ref->node->debug_id);
+				goto err_translate_failed;
 			}
 		} break;
 
 		case BINDER_TYPE_FD: {
-			int target_fd;
-			struct file *file;
+			struct binder_fd_object *fp = to_binder_fd_object(hdr);
+			int target_fd = binder_translate_fd(fp->fd, t, thread,
+							    in_reply_to);
 
-			if (reply) {
-				if (!(in_reply_to->flags & TF_ACCEPT_FDS)) {
-					binder_user_error("%d:%d got reply with fd, %d, but target does not allow fds\n",
-						proc->pid, thread->pid, fp->handle);
-					return_error = BR_FAILED_REPLY;
-					goto err_fd_not_allowed;
-				}
-			} else if (!target_node->accept_fds) {
-				binder_user_error("%d:%d got transaction with fd, %d, but target does not allow fds\n",
-					proc->pid, thread->pid, fp->handle);
-				return_error = BR_FAILED_REPLY;
-				goto err_fd_not_allowed;
-			}
-
-			file = fget(fp->handle);
-			if (file == NULL) {
-				binder_user_error("%d:%d got transaction with invalid fd, %d\n",
-					proc->pid, thread->pid, fp->handle);
-				return_error = BR_FAILED_REPLY;
-				goto err_fget_failed;
-			}
-			if (security_binder_transfer_file(proc->tsk,
-							  target_proc->tsk,
-							  file) < 0) {
-				fput(file);
-				return_error = BR_FAILED_REPLY;
-				goto err_get_unused_fd_failed;
-			}
-			target_fd = task_get_unused_fd_flags(target_proc, O_CLOEXEC);
 			if (target_fd < 0) {
-				fput(file);
 				return_error = BR_FAILED_REPLY;
-				goto err_get_unused_fd_failed;
+				goto err_translate_failed;
 			}
-			task_fd_install(target_proc, target_fd, file);
-			trace_binder_transaction_fd(t, fp->handle, target_fd);
-			binder_debug(BINDER_DEBUG_TRANSACTION,
-				     "        fd %d -> %d\n", fp->handle, target_fd);
-			/* TODO: fput? */
-			fp->handle = target_fd;
+			fp->pad_binder = 0;
+			fp->fd = target_fd;
 		} break;
+		case BINDER_TYPE_FDA: {
+			struct binder_fd_array_object *fda =
+				to_binder_fd_array_object(hdr);
+			struct binder_buffer_object *parent =
+				binder_validate_ptr(t->buffer, fda->parent,
+						    off_start,
+						    offp - off_start);
+			if (!parent) {
+				binder_user_error("%d:%d got transaction with invalid parent offset or type\n",
+						  proc->pid, thread->pid);
+				return_error = BR_FAILED_REPLY;
+				goto err_bad_parent;
+			}
+			if (!binder_validate_fixup(t->buffer, off_start,
+						   parent, fda->parent_offset,
+						   last_fixup_obj,
+						   last_fixup_min_off)) {
+				binder_user_error("%d:%d got transaction with out-of-order buffer fixup\n",
+						  proc->pid, thread->pid);
+				return_error = BR_FAILED_REPLY;
+				goto err_bad_parent;
+			}
+			ret = binder_translate_fd_array(fda, parent, t, thread,
+							in_reply_to);
+			if (ret < 0) {
+				return_error = BR_FAILED_REPLY;
+				goto err_translate_failed;
+			}
+			last_fixup_obj = parent;
+			last_fixup_min_off =
+				fda->parent_offset + sizeof(u32) * fda->num_fds;
+		} break;
+		case BINDER_TYPE_PTR: {
+			struct binder_buffer_object *bp =
+				to_binder_buffer_object(hdr);
+			size_t buf_left = sg_buf_end - sg_bufp;
 
+			if (bp->length > buf_left) {
+				binder_user_error("%d:%d got transaction with too large buffer\n",
+						  proc->pid, thread->pid);
+				return_error = BR_FAILED_REPLY;
+				goto err_bad_offset;
+			}
+			if (copy_from_user(sg_bufp,
+					   (const void __user *)(uintptr_t)
+					   bp->buffer, bp->length)) {
+				binder_user_error("%d:%d got transaction with invalid offsets ptr\n",
+						  proc->pid, thread->pid);
+				return_error = BR_FAILED_REPLY;
+				goto err_copy_data_failed;
+			}
+			/* Fixup buffer pointer to target proc address space */
+			bp->buffer = (uintptr_t)sg_bufp +
+				target_proc->user_buffer_offset;
+			sg_bufp += ALIGN(bp->length, sizeof(u64));
+
+			ret = binder_fixup_parent(t, thread, bp, off_start,
+						  offp - off_start,
+						  last_fixup_obj,
+						  last_fixup_min_off);
+			if (ret < 0) {
+				return_error = BR_FAILED_REPLY;
+				goto err_translate_failed;
+			}
+			last_fixup_obj = bp;
+			last_fixup_min_off = 0;
+		} break;
 		default:
 			binder_user_error("%d:%d got transaction with invalid object type, %x\n",
 				proc->pid, thread->pid, hdr->type);
@@ -2547,8 +2511,7 @@ static int binder_thread_write(struct binder_proc *proc,
 		case BC_REPLY_SG: {
 			struct binder_transaction_data_sg tr;
 
-			if (copy_from_user_preempt_disabled(&tr, ptr,
-							    sizeof(tr)))
+			if (copy_from_user(&tr, ptr, sizeof(tr)))
 				return -EFAULT;
 			ptr += sizeof(tr);
 			binder_transaction(proc, thread, &tr.transaction_data,
@@ -3818,7 +3781,6 @@ static void binder_deferred_func(struct work_struct *work)
 
 	int defer;
 
-	set_long_preempt_disable_hint(true);
 	do {
 		trace_binder_lock(__func__);
 		mutex_lock(&binder_main_lock);
@@ -3857,7 +3819,6 @@ static void binder_deferred_func(struct work_struct *work)
 		if (files)
 			put_files_struct(files);
 	} while (proc);
-	set_long_preempt_disable_hint(false);
 }
 static DECLARE_WORK(binder_deferred_work, binder_deferred_func);
 
@@ -4420,3 +4381,4 @@ device_initcall(binder_init);
 #include "binder_trace.h"
 
 MODULE_LICENSE("GPL v2");
+

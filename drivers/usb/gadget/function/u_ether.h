@@ -271,3 +271,4 @@ static inline bool can_support_ecm(struct usb_gadget *gadget)
 }
 
 #endif /* __U_ETHER_H */
+
